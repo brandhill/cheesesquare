@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 
-package com.support.android.designlibdemo;
+package com.support.android.designlibdemo.ui;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Message;
+import android.os.Process;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.NavigationView;
 import android.support.design.widget.Snackbar;
@@ -30,12 +34,15 @@ import android.support.v4.widget.DrawerLayout;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Toast;
+
+import com.support.android.designlibdemo.R;
+import com.support.android.designlibdemo.service.CheeseService;
+import com.support.android.designlibdemo.utils.DetachableResultReceiver;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,14 +50,21 @@ import java.util.List;
 /**
  * TODO
  */
-public class MainActivity extends AppCompatActivity {
+public class CheeseMainActivity extends AppCompatActivity implements DetachableResultReceiver.Receiver{
 
+    private static final String TAG = CheeseMainActivity.class.getSimpleName();
     private DrawerLayout mDrawerLayout;
+    private SharePrefeneceThread mThread;
+
+    private DetachableResultReceiver mReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        mReceiver = new DetachableResultReceiver(new Handler());
+        mReceiver.setReceiver(this);
 
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -76,12 +90,30 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 Snackbar.make(view, "Here's a Snackbar", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
+                        .setAction("Action", new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+
+                            }
+                        }).show();
+                mThread.write();
             }
         });
 
         TabLayout tabLayout = (TabLayout) findViewById(R.id.tabs);
         tabLayout.setupWithViewPager(viewPager);
+
+        mThread = new SharePrefeneceThread();
+        mThread.start();
+
+        CheeseService.startActionFoo(CheeseMainActivity.this, "A", "B", mReceiver);
+
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mThread.quit();
     }
 
     @Override
@@ -118,6 +150,84 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
+    }
+
+    private Handler mUiHandler = new Handler(){
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            if(msg.what == 0){
+                Integer i = (Integer) msg.obj;
+                Log.d(TAG, "come from mUiHandler, message : "+i);
+
+            }
+        }
+    };
+
+    @Override
+    public void onReceiveResult(int resultCode, Bundle resultData) {
+
+        switch (resultCode) {
+            case CheeseService.STATUS_RUNNING: {
+                break;
+            }
+
+            case CheeseService.STATUS_FINISHED: {
+
+                String command = resultData.getString(CheeseService.EXTRA_PARAM);
+
+                Log.d(TAG, "return : "+command);
+
+                break;
+            }
+
+
+            case CheeseService.STATUS_ERROR: {
+                break;
+            }
+        }
+    }
+
+    private class SharePrefeneceThread extends HandlerThread{
+        private static final int READ = 1;
+        private static final int WRITE = 2;
+        private Handler mHandler;
+        private int count ;
+
+        public SharePrefeneceThread() {
+            super("SharePrefeneceThread", Process.THREAD_PRIORITY_BACKGROUND);
+            count = 0;
+        }
+
+        @Override
+        protected void onLooperPrepared() {
+            super.onLooperPrepared();
+            mHandler = new Handler(getLooper()){
+                @Override
+                public void handleMessage(Message msg) {
+                    count ++;
+                    switch (msg.what){
+                        case READ:
+                            mUiHandler.sendMessage(mUiHandler.obtainMessage(0, 123));
+                            break;
+                        case WRITE:
+
+                            Integer i = (Integer) msg.obj;
+                            Toast.makeText(CheeseMainActivity.this, "Write , data : " + i.toString(), Toast.LENGTH_SHORT).show();
+
+                            break;
+                    }
+                }
+            };
+        }
+
+        public void read(){
+            mHandler.sendEmptyMessage(READ);
+        }
+
+        public void write(){
+            mHandler.sendMessage(mHandler.obtainMessage(WRITE, 100));
+        }
     }
 
     static class Adapter extends FragmentPagerAdapter {
